@@ -1,0 +1,112 @@
+#! /usr/bin/env python
+# -*- coding: utf-8 -*-
+# vim:fenc=utf-8
+#
+# Copyright © 2017 Adrian Perez <aperez@igalia.com>
+#
+# Distributed under terms of the GPLv3 license.
+
+import gi
+gi.require_versions(dict(WebKit2='4.0', Gepub='0.4', Gtk='3.0', GLib='2.0'))
+from gi.repository import Gepub, Gtk, GObject, Gio
+
+def _find_resources_path(program_path):
+    from os import path as P, environ
+    devel = environ.get("__ALEXANDRIA_DEVELOPMENT")
+    if devel and devel.strip():
+        # Use the directory where the executable is located, most likely
+        # a checkout of the Git repository.
+        path = P.dirname(program_path)
+    else:
+        # Use an installed location: binary is in <prefix>/bin/alexandria,
+        # and resources in <prefix>/share/alexandria/*
+        path = P.join(P.dirname(P.dirname(program_path)), "share", "alexandria")
+    return P.abspath(P.join(path, "org.perezdecastro.Alexandria.gresource"))
+
+
+class memoized_function(object):
+    __slots__ = ("value", "get_value")
+    INVALID = object()
+
+    def __init__(self, f):
+        self.value = self.INVALID
+        self.get_value = f
+
+    def __call__(self, *arg, **kw):
+        if self.value is self.INVALID:
+            self.value = self.get_value(*arg, **kw)
+        return self.value
+
+
+def memoized_property(fget, doc=None):
+    return property(memoized_function(fget), doc=doc)
+
+
+class AppWindow(Gtk.ApplicationWindow):
+    def __init__(self, application, document):
+        self._document = document
+        Gtk.ApplicationWindow.__init__(self,
+                                       application=application,
+                                       icon_name="accessories-dictionary",
+                                       role="main-window")
+        self.set_titlebar(self._headerbar)
+        self._headerbar.set_subtitle(document.get_metadata("title"))
+        view = Gepub.Widget()
+        view.set_doc(document)
+        self.add(view)
+
+    @memoized_property
+    def _headerbar(self):
+        header = Gtk.HeaderBar()
+        header.set_title("Alexandria")
+        prev_button = Gtk.Button.new_from_icon_name("go-previous-symbolic",
+                                                    Gtk.IconSize.BUTTON)
+        prev_button.connect("clicked", self.__on_prev)
+        next_button = Gtk.Button.new_from_icon_name("go-next-symbolic",
+                                                    Gtk.IconSize.BUTTON)
+        next_button.connect("clicked", self.__on_next)
+        header.pack_start(prev_button)
+        header.pack_start(next_button)
+        header.set_show_close_button(True)
+        header.show_all()
+        return header
+
+    def __on_prev(self, button):
+        self._document.go_prev()
+
+    def __on_next(self, button):
+        self._document.go_next()
+
+
+class App(Gtk.Application):
+    def __init__(self):
+        Gtk.Application.__init__(self,
+                                 application_id="org.perezdecastro.Alexandria",
+                                 flags=Gio.ApplicationFlags.HANDLES_OPEN)
+        self.connect("startup", self.__on_startup)
+        self.connect("open", self.__on_open)
+
+    def __action(self, name, callback):
+        action = Gio.SimpleAction.new(name)
+        action.connect("activate", callback)
+        self.add_action(action)
+
+    def __on_startup(self, app):
+        gtk_settings = Gtk.Settings.get_default()
+        gtk_settings.set_property("gtk-dialogs-use-header", True)
+        self.__action("quit", lambda *arg: self.quit())
+
+    def __on_open(self, app, files, n_files, hint):
+        for f in files:
+            if f.query_exists(None):
+                window = AppWindow(self, Gepub.Doc.new(f.get_path()))
+                self.add_window(window)
+                window.show_all()
+                window.present()
+
+
+if __name__ == "__main__":
+    import signal, sys
+    signal.signal(signal.SIGINT, signal.SIG_DFL)
+    Gio.Resource.load(_find_resources_path(__file__))._register()
+    sys.exit(App().run(sys.argv))

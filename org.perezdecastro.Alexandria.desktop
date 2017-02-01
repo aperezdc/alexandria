@@ -1,0 +1,13 @@
+[Desktop Entry]
+Hidden=false
+Name=Alexandria
+Exec=alexandria
+TryExec=alexandria
+Icon=accesories-dictionary
+Comment=Read book in ePub format
+Type=Application
+NoDisplay=false
+StartupNotify=true
+Categories=GNOME;GTK;Office
+Terminal=false
+X-GNOME-UsesNotifications=false
